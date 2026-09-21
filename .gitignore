@@ -4,3 +4,15 @@ db.env
 
 # Python virtual environment
 venv/
+.venv/
+
+# Python caches and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Foundation compatibility test artifacts
+.foundation-test-results/
+.foundation-python/

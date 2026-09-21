@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://updatis.dev/contracts/foundation-defaults-v1.schema.json",
+  "title": "Updatis Foundation provisional defaults v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "payload", "retry", "retention", "capacity", "workload_target"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "payload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["typical_bytes", "maximum_bytes"],
+      "properties": {
+        "typical_bytes": {"type": "integer", "minimum": 1, "maximum": 524288},
+        "maximum_bytes": {"const": 524288}
+      }
+    },
+    "retry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_attempts", "max_age_seconds", "initial_backoff_seconds", "max_backoff_seconds", "connect_timeout_seconds", "total_timeout_seconds"],
+      "properties": {
+        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 100},
+        "max_age_seconds": {"type": "integer", "minimum": 1, "maximum": 604800},
+        "initial_backoff_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
+        "max_backoff_seconds": {"type": "number", "minimum": 1, "maximum": 3600},
+        "connect_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
+        "total_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 300}
+      }
+    },
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kafka_seconds", "payload_seconds"],
+      "properties": {
+        "kafka_seconds": {"type": "integer", "minimum": 3600, "maximum": 2592000},
+        "payload_seconds": {"type": "integer", "minimum": 3600, "maximum": 7776000}
+      }
+    },
+    "capacity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["high_watermark_events", "high_watermark_bytes", "resume_percent", "max_active_partitions", "inflight_per_partition"],
+      "properties": {
+        "high_watermark_events": {"type": "integer", "minimum": 1000, "maximum": 10000000},
+        "high_watermark_bytes": {"type": "integer", "minimum": 1048576, "maximum": 1099511627776},
+        "resume_percent": {"type": "integer", "minimum": 1, "maximum": 99},
+        "max_active_partitions": {"type": "integer", "minimum": 1, "maximum": 64},
+        "inflight_per_partition": {"const": 1}
+      }
+    },
+    "workload_target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sustained_events_per_second", "burst_events_per_second", "burst_seconds", "captured_tables", "initial_snapshot_rows"],
+      "properties": {
+        "sustained_events_per_second": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "burst_events_per_second": {"type": "integer", "minimum": 1, "maximum": 50000},
+        "burst_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "captured_tables": {"type": "integer", "minimum": 1, "maximum": 100},
+        "initial_snapshot_rows": {"type": "integer", "minimum": 1, "maximum": 100000000}
+      }
+    }
+  }
+}

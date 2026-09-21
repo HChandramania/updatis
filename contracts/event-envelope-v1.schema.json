@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://updatis.dev/contracts/event-envelope-v1.schema.json",
+  "title": "Updatis event envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "pipeline_id", "operation", "occurred_at", "ingested_at", "key", "source", "before", "after", "metadata"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "pipeline_id": {"type": "string", "format": "uuid"},
+    "operation": {"enum": ["read", "create", "update", "delete"]},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "ingested_at": {"type": "string", "format": "date-time"},
+    "key": {
+      "type": "array", "minItems": 1, "maxItems": 4,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "type", "value"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 63},
+          "type": {"enum": ["smallint", "integer", "bigint", "uuid", "char", "varchar", "text"]},
+          "value": {"type": ["integer", "string"]}
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "type": {"enum": ["smallint", "integer", "bigint"]},
+              "value": {"type": "integer"}
+            }
+          },
+          {
+            "properties": {
+              "type": {"const": "uuid"},
+              "value": {"type": "string", "format": "uuid"}
+            }
+          },
+          {
+            "properties": {
+              "type": {"enum": ["char", "varchar", "text"]},
+              "value": {"type": "string"}
+            }
+          }
+        ]
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["connector", "stream_epoch", "database", "schema", "table", "topic", "partition", "offset", "lsn", "snapshot"],
+      "properties": {
+        "connector": {"const": "postgresql"},
+        "stream_epoch": {"type": "string", "format": "uuid"},
+        "database": {"type": "string", "minLength": 1},
+        "schema": {"type": "string", "minLength": 1},
+        "table": {"type": "string", "minLength": 1},
+        "topic": {"type": "string", "minLength": 1},
+        "partition": {"type": "integer", "minimum": 0},
+        "offset": {"type": "integer", "minimum": 0},
+        "lsn": {"type": ["string", "null"]},
+        "snapshot": {"type": "boolean"},
+        "transaction_id": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "before": {"type": ["object", "null"]},
+    "after": {"type": ["object", "null"]},
+    "metadata": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"operation": {"enum": ["read", "create", "update"]}}}, "then": {"properties": {"after": {"type": "object"}}}},
+    {"if": {"properties": {"operation": {"const": "create"}}}, "then": {"properties": {"before": {"type": "null"}}}},
+    {"if": {"properties": {"operation": {"const": "delete"}}}, "then": {"properties": {"after": {"type": "null"}}}}
+  ]
+}

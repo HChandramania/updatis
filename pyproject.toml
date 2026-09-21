@@ -1,0 +1,13 @@
+[project]
+name = "updatis-foundation"
+version = "0.0.0"
+description = "Foundation contracts and legacy regression evidence for Updatis"
+requires-python = "==3.13.*"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+markers = [
+  "legacy_defect: executable evidence of a known legacy defect; not supported product behavior",
+  "contract: validates an approved Foundation contract or fixture",
+]

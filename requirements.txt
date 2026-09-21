@@ -1,8 +1,11 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-aiomysql==0.2.0
-pymysql==1.1.0
-python-dotenv==1.0.0
-pydantic==2.5.0
-kafka-python==2.0.2
-requests==2.31.0
+# Validated Foundation direct dependencies. See docs/SUPPORT_MATRIX.md for the
+# bounded clean-install and container interoperability evidence. Reproducible
+# installs use requirements.lock, which pins all transitive dependencies.
+fastapi==0.141.1
+uvicorn[standard]==0.35.0
+aiomysql==0.3.2
+pymysql==1.1.2
+python-dotenv==1.1.1
+pydantic==2.13.5
+kafka-python==3.0.11
+requests==2.32.5

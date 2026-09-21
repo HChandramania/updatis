@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "event_id": "3e8a79c29532553e7cae403117bd53e1d506de23fd295ab52dd637a756683987",
+  "pipeline_id": "fd819cf3-f16b-4f06-a9fd-655f37d1ca38",
+  "operation": "delete",
+  "occurred_at": "2026-09-21T10:02:00Z", "ingested_at": "2026-09-21T10:02:01Z",
+  "key": [{"name": "id", "type": "integer", "value": 42}],
+  "source": {
+    "connector": "postgresql", "stream_epoch": "c64b8e38-06e5-4418-b907-80ae94d8bf8b",
+    "database": "app", "schema": "public", "table": "orders",
+    "topic": "source.public.orders", "partition": 0, "offset": 14,
+    "lsn": "0/16B6E20", "snapshot": false, "transaction_id": 903
+  },
+  "before": null, "after": null, "metadata": {}
+}

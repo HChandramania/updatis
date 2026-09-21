@@ -1,5 +1,17 @@
 # Real-Time Order Notification System
 
+> [!IMPORTANT]
+> This code is the **legacy MySQL order-notification example**. It records the
+> repository's current behavior, including known defects, and is not the
+> supported Updatis product architecture. The planned Updatis product begins
+> with PostgreSQL as its source and webhooks as its first destination. MySQL
+> compatibility is not claimed.
+
+Foundation-gate contracts and reproducible checks are documented in
+[`docs/FOUNDATION.md`](docs/FOUNDATION.md). No PostgreSQL capture, webhook
+delivery, pipeline API, CLI, metadata store, or dashboard has been implemented
+by the Foundation gate.
+
 FastAPI, Kafka, Debezium, MySQL, and WebSockets for real-time order updates.
 
 ## Architecture

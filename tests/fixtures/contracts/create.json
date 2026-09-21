@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "event_id": "e408c9f09fc3371ad1abcfb1f1b364d24c322e472a4dcea2c0fa1614780f260c",
+  "pipeline_id": "fd819cf3-f16b-4f06-a9fd-655f37d1ca38",
+  "operation": "create",
+  "occurred_at": "2026-09-21T10:00:00Z",
+  "ingested_at": "2026-09-21T10:00:01Z",
+  "key": [{"name": "id", "type": "bigint", "value": 42}],
+  "source": {
+    "connector": "postgresql",
+    "stream_epoch": "c64b8e38-06e5-4418-b907-80ae94d8bf8b",
+    "database": "app", "schema": "public", "table": "orders",
+    "topic": "source.public.orders", "partition": 0, "offset": 12,
+    "lsn": "0/16B6C50", "snapshot": false, "transaction_id": 901
+  },
+  "before": null,
+  "after": {"id": 42, "total": "19.95", "active": true},
+  "metadata": {}
+}

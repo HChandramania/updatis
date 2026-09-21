@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "event_id": "54eba2c0d63e707ba7fe404d141a344f8a0f950bba1bd2ed074fab91b6d0dec9",
+  "pipeline_id": "fd819cf3-f16b-4f06-a9fd-655f37d1ca38",
+  "operation": "update",
+  "occurred_at": "2026-09-21T10:01:00Z",
+  "ingested_at": "2026-09-21T10:01:01Z",
+  "key": [{"name": "id", "type": "integer", "value": 42}],
+  "source": {
+    "connector": "postgresql", "stream_epoch": "c64b8e38-06e5-4418-b907-80ae94d8bf8b",
+    "database": "app", "schema": "public", "table": "orders",
+    "topic": "source.public.orders", "partition": 0, "offset": 13,
+    "lsn": "0/16B6D10", "snapshot": false, "transaction_id": 902
+  },
+  "before": null, "after": {"id": 42, "status": "paid"}, "metadata": {}
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "event_id": "3ba8fa4c7a690f62f7b61c75c59f8c983b0e8adc23796fbeb502377d4e3da160",
+  "pipeline_id": "fd819cf3-f16b-4f06-a9fd-655f37d1ca38",
+  "operation": "read",
+  "occurred_at": "2026-09-21T09:59:00Z",
+  "ingested_at": "2026-09-21T10:00:00Z",
+  "key": [
+    {"name": "tenant_id", "type": "uuid", "value": "3a20cb23-9aac-44bb-ac9f-a2f6c797cdb8"},
+    {"name": "external_id", "type": "varchar", "value": "order-42"}
+  ],
+  "source": {
+    "connector": "postgresql",
+    "stream_epoch": "c64b8e38-06e5-4418-b907-80ae94d8bf8b",
+    "database": "app", "schema": "public", "table": "orders",
+    "topic": "source.public.orders", "partition": 0, "offset": 0,
+    "lsn": "0/16B5A10", "snapshot": true, "transaction_id": null
+  },
+  "before": null,
+  "after": {"tenant_id": "3a20cb23-9aac-44bb-ac9f-a2f6c797cdb8", "external_id": "order-42"},
+  "metadata": {"snapshot_mode": "initial"}
+}
