@@ -1,0 +1,8 @@
+# Runtime dependencies for the supported Updatis product image.
+alembic==1.16.5
+fastapi==0.141.1
+psycopg[binary]==3.2.10
+pydantic==2.13.5
+setuptools==80.9.0
+sqlalchemy==2.0.43
+uvicorn[standard]==0.35.0

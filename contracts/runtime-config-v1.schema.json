@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://updatis.dev/contracts/runtime-config-v1.schema.json",
+  "title": "Updatis runtime configuration v1",
+  "description": "The executable contract is the strict updatis.config.models.RuntimeConfigV1 model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "metadata"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "environment": {"enum": ["development", "test", "staging", "production"]},
+    "metadata": {"$ref": "#/$defs/postgresEndpoint"},
+    "metadata_aliases": {"type": "array", "items": {"type": "string"}},
+    "secrets_directory": {"type": "string"},
+    "schema_revision": {"type": "string"}
+  },
+  "$defs": {
+    "secretReference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider", "name"],
+      "properties": {"provider": {"enum": ["env", "file"]}, "name": {"type": "string"}}
+    },
+    "postgresEndpoint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["host", "database", "username", "password", "instance_id"],
+      "properties": {
+        "host": {"type": "string"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "database": {"type": "string"}, "username": {"type": "string"},
+        "password": {"$ref": "#/$defs/secretReference"}, "instance_id": {"type": "string"}
+      }
+    }
+  }
+}

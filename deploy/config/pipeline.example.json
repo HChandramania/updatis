@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "pipeline_id": "example-orders",
+  "envelope_version": 1,
+  "source": {
+    "kind": "postgresql",
+    "endpoint": {
+      "host": "source-db",
+      "port": 5432,
+      "database": "example_source",
+      "username": "example_app",
+      "password": {"provider": "file", "name": "source_runtime_password"},
+      "instance_id": "example-source-local"
+    },
+    "stream_epoch": "example-epoch-1",
+    "snapshot_mode": "initial",
+    "connector_tasks": 1,
+    "partitions_per_table": 1,
+    "tables": [{
+      "schema_name": "example",
+      "table_name": "orders",
+      "key_columns": ["id"],
+      "key_types": ["bigint"]
+    }]
+  },
+  "destination": {
+    "kind": "webhook",
+    "url": "http://example-receiver:8080/events",
+    "signing_secret": {"provider": "env", "name": "UPDATIS_WEBHOOK_SIGNING_SECRET"}
+  },
+  "allow_local_http": true,
+  "local_http_allowlist": ["example-receiver:8080"]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://updatis.dev/contracts/pipeline-config-v1.schema.json",
+  "title": "Updatis pipeline configuration v1",
+  "description": "The executable contract is the strict updatis.config.models.PipelineConfigV1 model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pipeline_id", "source", "destination"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "pipeline_id": {"type": "string"},
+    "envelope_version": {"const": 1},
+    "source": {"type": "object"},
+    "destination": {"type": "object"},
+    "retry": {"type": "object"},
+    "capacity": {"type": "object"},
+    "retention": {"type": "object"},
+    "allow_local_http": {"type": "boolean"},
+    "local_http_allowlist": {"type": "array", "items": {"type": "string"}}
+  }
+}

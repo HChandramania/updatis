@@ -5,14 +5,21 @@ db.env
 # Python virtual environment
 venv/
 .venv/
+.v01a-venv/
+.uv-cache/
 
 # Python caches and test output
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.test-tmp/
 .coverage
 htmlcov/
 
 # Foundation compatibility test artifacts
 .foundation-test-results/
 .foundation-python/
+deploy/secrets/
+dist/
+build/
+*.egg-info/

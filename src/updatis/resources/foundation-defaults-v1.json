@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "payload": {"typical_bytes": 65536, "maximum_bytes": 524288},
+  "retry": {
+    "max_attempts": 10,
+    "max_age_seconds": 86400,
+    "initial_backoff_seconds": 1,
+    "max_backoff_seconds": 300,
+    "connect_timeout_seconds": 5,
+    "total_timeout_seconds": 30
+  },
+  "retention": {"kafka_seconds": 604800, "payload_seconds": 2592000},
+  "capacity": {
+    "high_watermark_events": 100000,
+    "high_watermark_bytes": 10737418240,
+    "resume_percent": 80,
+    "max_active_partitions": 8,
+    "inflight_per_partition": 1
+  },
+  "workload_target": {
+    "sustained_events_per_second": 100,
+    "burst_events_per_second": 500,
+    "burst_seconds": 60,
+    "captured_tables": 10,
+    "initial_snapshot_rows": 1000000
+  }
+}

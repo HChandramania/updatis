@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "environment": "development",
+  "metadata": {
+    "host": "metadata-db",
+    "port": 5432,
+    "database": "updatis_metadata",
+    "username": "updatis_runtime",
+    "password": {"provider": "file", "name": "metadata_runtime_password"},
+    "instance_id": "updatis-metadata-local"
+  },
+  "metadata_aliases": ["metadata-db"],
+  "secrets_directory": "/run/secrets",
+  "schema_revision": "0001_metadata"
+}

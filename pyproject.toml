@@ -1,13 +1,41 @@
 [project]
-name = "updatis-foundation"
-version = "0.0.0"
-description = "Foundation contracts and legacy regression evidence for Updatis"
+name = "updatis"
+version = "0.1.0a1"
+description = "Updatis PostgreSQL change delivery service"
 requires-python = "==3.13.*"
+dependencies = [
+  "alembic==1.16.5",
+  "fastapi==0.141.1",
+  "psycopg[binary]==3.2.10",
+  "pydantic==2.13.5",
+  "sqlalchemy==2.0.43",
+  "uvicorn[standard]==0.35.0",
+]
+
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+updatis = [
+  "resources/*.json",
+  "db/migrations/*.py",
+  "db/migrations/*.mako",
+  "db/migrations/versions/*.py",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
 testpaths = ["tests"]
+pythonpath = ["src", "."]
 markers = [
   "legacy_defect: executable evidence of a known legacy defect; not supported product behavior",
   "contract: validates an approved Foundation contract or fixture",
+  "integration: requires the isolated Docker Compose product stack",
 ]

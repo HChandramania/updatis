@@ -56,3 +56,15 @@ executes `docker compose down --volumes --remove-orphans` in `finally`.
 CI performs the same hash-checked install, pytest suite, and compatibility
 runner. Any command failure fails the workflow. Container success demonstrates
 only baseline version/plugin interoperability, not CDC capture or delivery.
+
+## v0.1-a checks
+
+`python -m pytest` also runs configuration, secret-reference, isolation,
+redaction, packaging and migration-contract tests for 01A–01C.
+
+`python tests/integration/verify.py` builds the product image and starts a
+uniquely named Compose project. It runs the explicit migration twice, verifies
+the installed-wheel entry points, schema revision, database and credential
+isolation, absence of CDC configuration, health checks, and persistence through
+ordinary stop/start. Its `finally` cleanup removes only that uniquely named test
+project and volumes. Normal product startup and shutdown never remove volumes.

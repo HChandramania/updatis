@@ -12,6 +12,12 @@ Foundation-gate contracts and reproducible checks are documented in
 delivery, pipeline API, CLI, metadata store, or dashboard has been implemented
 by the Foundation gate.
 
+The supported product implementation begins under `src/updatis/`. The existing
+`app/`, root entry points, and root `docker-compose.yml` remain a separated
+legacy MySQL example. The v0.1-a local topology and explicit migration workflow
+are documented in `docs/LOCAL_STACK.md`; it does not provide a working CDC or
+delivery path.
+
 FastAPI, Kafka, Debezium, MySQL, and WebSockets for real-time order updates.
 
 ## Architecture
