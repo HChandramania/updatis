@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -16,6 +17,7 @@ SECRET_FILES = (
     "metadata_bootstrap_password", "metadata_migration_password", "metadata_runtime_password",
     "source_bootstrap_password", "source_runtime_password",
 )
+UNMARKED_CONFIG = SECRETS / "unmarked-runtime.json"
 
 
 def run(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -35,6 +37,14 @@ def exec_sql(service: str, user: str, database: str, sql: str, check: bool = Tru
     return result.stdout.strip()
 
 
+def assert_metadata_sql_denied(user: str, sql: str) -> None:
+    result = run(
+        "exec", "-T", "metadata-db", "psql", "-v", "ON_ERROR_STOP=1", "-U", user,
+        "-d", "updatis_metadata", "-c", sql, capture=True, check=False,
+    )
+    assert result.returncode != 0, f"{user} unexpectedly executed marker mutation: {sql}"
+
+
 def main() -> None:
     SECRETS.mkdir(exist_ok=True)
     for name in SECRET_FILES:
@@ -42,6 +52,50 @@ def main() -> None:
     try:
         run("config", "--quiet")
         run("up", "-d", "--wait", "--wait-timeout", "300", "metadata-db", "source-db", "kafka", "connect")
+        for role in ("updatis_migration", "updatis_runtime"):
+            assert exec_sql(
+                "metadata-db", role, "updatis_metadata",
+                "SELECT instance_id FROM updatis_bootstrap.metadata_instance WHERE singleton",
+            ) == "updatis-metadata-local"
+            privileges = exec_sql(
+                "metadata-db", role, "updatis_metadata", """
+                SELECT has_schema_privilege(current_user, 'updatis_bootstrap', 'USAGE') || ',' ||
+                       has_table_privilege(current_user, 'updatis_bootstrap.metadata_instance', 'SELECT') || ',' ||
+                       has_table_privilege(current_user, 'updatis_bootstrap.metadata_instance', 'INSERT') || ',' ||
+                       has_table_privilege(current_user, 'updatis_bootstrap.metadata_instance', 'UPDATE') || ',' ||
+                       has_table_privilege(current_user, 'updatis_bootstrap.metadata_instance', 'DELETE') || ',' ||
+                       has_table_privilege(current_user, 'updatis_bootstrap.metadata_instance', 'TRUNCATE')
+                """,
+            )
+            assert privileges == "true,true,false,false,false,false"
+            for mutation in (
+                "INSERT INTO updatis_bootstrap.metadata_instance(singleton, instance_id) VALUES(false, 'forbidden')",
+                "UPDATE updatis_bootstrap.metadata_instance SET instance_id='forbidden' WHERE singleton",
+                "DELETE FROM updatis_bootstrap.metadata_instance WHERE singleton",
+                "TRUNCATE updatis_bootstrap.metadata_instance",
+            ):
+                assert_metadata_sql_denied(role, mutation)
+
+        exec_sql(
+            "metadata-db", "updatis_bootstrap", "postgres",
+            "CREATE DATABASE updatis_unmarked",
+        )
+        exec_sql(
+            "metadata-db", "updatis_bootstrap", "updatis_unmarked",
+            "GRANT CREATE ON SCHEMA public TO updatis_migration",
+        )
+        unmarked_document = json.loads((ROOT / "deploy/config/migration.example.json").read_text(encoding="utf-8"))
+        unmarked_document["metadata"]["database"] = "updatis_unmarked"
+        UNMARKED_CONFIG.write_text(json.dumps(unmarked_document), encoding="utf-8")
+        unmarked = run(
+            "--profile", "tools", "run", "--rm", "--no-deps", "-v",
+            f"{UNMARKED_CONFIG.resolve()}:/tmp/unmarked-runtime.json:ro", "migrate",
+            "updatis.db.migrate", "--config", "/tmp/unmarked-runtime.json",
+            capture=True, check=False,
+        )
+        assert unmarked.returncode != 0, "migration must reject an unmarked database"
+        assert "metadata_instance" in (unmarked.stdout + unmarked.stderr)
+
         pre_migration = run("run", "--rm", "--no-deps", "api", capture=True, check=False)
         assert pre_migration.returncode != 0, "API must reject an unmigrated metadata database"
         run("--profile", "tools", "run", "--rm", "migrate")
@@ -53,6 +107,9 @@ def main() -> None:
 
         assert exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
             "SELECT version_num FROM alembic_version") == "0001_metadata"
+        for role in ("updatis_migration", "updatis_runtime"):
+            assert exec_sql("metadata-db", role, "updatis_metadata",
+                            "SELECT version_num FROM alembic_version") == "0001_metadata"
         tables = set(exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
             "SELECT tablename FROM pg_tables WHERE schemaname='public'").splitlines())
         expected = {"pipelines", "configuration_revisions", "ingest_records", "events",
@@ -100,10 +157,7 @@ def main() -> None:
                                "updatis_connect_statuses"}
 
         # psql must fail because the runtime role has no CREATE privilege.
-        denied_result = run("exec", "-T", "metadata-db", "psql", "-v", "ON_ERROR_STOP=1", "-U",
-                            "updatis_runtime", "-d", "updatis_metadata", "-c",
-                            "CREATE TABLE forbidden_runtime_ddl(id integer)", capture=True, check=False)
-        assert denied_result.returncode != 0
+        assert_metadata_sql_denied("updatis_runtime", "CREATE TABLE forbidden_runtime_ddl(id integer)")
 
         run("stop", "api", "worker", "metadata-db", "source-db", "kafka", "connect")
         run("start", "metadata-db", "source-db", "kafka", "connect")
@@ -115,6 +169,7 @@ def main() -> None:
         run("down", "--volumes", "--remove-orphans", check=False)
         for name in SECRET_FILES:
             (SECRETS / name).unlink(missing_ok=True)
+        UNMARKED_CONFIG.unlink(missing_ok=True)
         try:
             SECRETS.rmdir()
         except OSError:

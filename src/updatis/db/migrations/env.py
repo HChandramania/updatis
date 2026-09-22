@@ -13,7 +13,11 @@ def run_migrations_online() -> None:
     connection = context.config.attributes.get("connection")
     if connection is None:
         raise RuntimeError("migrations require an explicit caller-owned database connection")
-    context.configure(connection=connection, transactional_ddl=True)
+    context.configure(
+        connection=connection,
+        transactional_ddl=True,
+        transaction_per_migration=False,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

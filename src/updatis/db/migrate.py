@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from importlib.resources import as_file, files
+from importlib.resources import files
 
 from alembic import command
 from alembic.config import Config
@@ -11,6 +11,9 @@ from sqlalchemy import text
 from updatis.config.loader import load_runtime_config
 from updatis.config.secrets import SecretResolver
 from updatis.db.connection import create_metadata_engine, database_url
+
+
+MIGRATION_LOCK_ID = 87388211725601
 
 
 def build_alembic_config(runtime_path: str) -> Config:
@@ -30,13 +33,17 @@ def migrate(runtime_path: str) -> None:
     engine = create_metadata_engine(runtime.metadata, resolver)
     try:
         with engine.begin() as connection:
+            # A transaction-scoped lock on this caller-owned connection remains
+            # held through the complete Alembic execution and outer commit.
+            connection.execute(text(f"SELECT pg_advisory_xact_lock({MIGRATION_LOCK_ID})"))
             marker = connection.execute(
-                text("SELECT instance_id FROM updatis_bootstrap.metadata_instance WHERE singleton FOR UPDATE")
+                text("SELECT instance_id FROM updatis_bootstrap.metadata_instance WHERE singleton")
             ).scalar_one()
             if marker != runtime.metadata.instance_id:
                 raise RuntimeError("metadata instance marker does not match runtime configuration")
-            connection.execute(text("SELECT pg_advisory_xact_lock(87388211725601)"))
             config = build_alembic_config(runtime_path)
+            # env.py refuses to create an engine and consumes this exact
+            # connection, preventing Alembic from escaping the advisory lock.
             config.attributes["connection"] = connection
             command.upgrade(config, "head")
     finally:
