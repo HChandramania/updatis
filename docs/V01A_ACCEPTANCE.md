@@ -81,3 +81,39 @@ locally, but the unavailable Docker daemon prevented container startup. The
 rendered Compose contract passed before that failure, and diagnostics were
 printed before cleanup. Live API/worker and host-port evidence remains pending a
 hosted `v01a-compose` rerun.
+
+## 01A canonical-schema and host-publication correction
+
+The next hosted run proved the marker DML boundaries and completed migration,
+but the host-loopback readiness poll received connection refusals for its full
+60-second deadline. Because `docker compose up --wait`, the API health check,
+the worker health check, configuration-mount checks, and canonical revision
+queries had already succeeded, this was not evidence that Uvicorn needed a
+longer startup allowance. The API was healthy inside its container. Its only
+network was the externally isolated metadata network, so the host publication
+did not have a normal bridge path. The API now joins both the private metadata
+network and a separate API-only bridge; the host mapping remains restricted to
+`127.0.0.1:8000:8000`. Metadata PostgreSQL remains only on its private network.
+
+The verifier sequence also mixed intentional negative schema queries into the
+same PostgreSQL log stream used for the canonical database. In particular, a
+pre-migration API probe used the canonical database, while the unmarked probe
+used a second database. The verifier now migrates and validates the canonical
+database first. Missing-marker, missing-revision, wrong-revision, and unmarked
+cases each use a distinct disposable database. It reasserts the canonical
+marker, exact Alembic revision, runtime read access, and complete table set after
+all negative probes and immediately before API/worker startup.
+
+The verifier now additionally proves port 8000 accepts a connection inside the
+API container before polling the host, and checks `docker compose port api 8000`
+reports `127.0.0.1:8000`. Failure diagnostics include the exact rendered API
+command, effective published port, full API/worker/metadata logs, and Docker
+inspect state with exit code, health, entrypoint, and command before cleanup.
+
+After this correction, the complete local CPython 3.13.15 suite passed with
+**78 tests and 4 unchanged strict expected failures**. Focused entrypoint,
+readiness, negative-schema isolation, and migration tests passed 14/14. The
+Docker integration verifier was run locally; rendered Compose validation and
+the expanded diagnostic path succeeded, but the unavailable local Docker daemon
+prevented container startup. Live evidence remains pending the next hosted
+`v01a-compose` run.

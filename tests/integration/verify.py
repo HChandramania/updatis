@@ -7,7 +7,10 @@ import subprocess
 import sys
 import uuid
 
-from readiness import wait_for_http_ready
+try:
+    from tests.integration.readiness import wait_for_http_ready
+except ModuleNotFoundError:  # Direct script execution sets tests/integration as sys.path[0].
+    from readiness import wait_for_http_ready
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,7 +21,14 @@ SECRET_FILES = (
     "metadata_bootstrap_password", "metadata_migration_password", "metadata_runtime_password",
     "source_bootstrap_password", "source_runtime_password",
 )
-UNMARKED_CONFIG = SECRETS / "unmarked-runtime.json"
+CANONICAL_DATABASE = "updatis_metadata"
+NEGATIVE_DATABASES = {
+    "unmarked": "updatis_test_unmarked",
+    "missing_marker": "updatis_test_missing_marker",
+    "missing_revision": "updatis_test_missing_revision",
+    "wrong_revision": "updatis_test_wrong_revision",
+}
+GENERATED_CONFIGS: list[Path] = []
 
 
 def run(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -44,6 +54,82 @@ def assert_metadata_sql_denied(user: str, sql: str) -> None:
         "-d", "updatis_metadata", "-c", sql, capture=True, check=False,
     )
     assert result.returncode != 0, f"{user} unexpectedly executed marker mutation: {sql}"
+
+
+def create_disposable_schema_database(case: str) -> None:
+    database = NEGATIVE_DATABASES[case]
+    assert database != CANONICAL_DATABASE
+    exec_sql("metadata-db", "updatis_bootstrap", "postgres", f"CREATE DATABASE {database}")
+    if case == "unmarked":
+        exec_sql(
+            "metadata-db", "updatis_bootstrap", database,
+            "GRANT CREATE ON SCHEMA public TO updatis_migration",
+        )
+        return
+
+    statements: list[str] = []
+    if case != "missing_marker":
+        statements.extend([
+            "CREATE SCHEMA updatis_bootstrap",
+            "CREATE TABLE updatis_bootstrap.metadata_instance ("
+            "singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton), instance_id text NOT NULL UNIQUE)",
+            "INSERT INTO updatis_bootstrap.metadata_instance(singleton, instance_id) "
+            "VALUES(true, 'updatis-metadata-local')",
+            "GRANT USAGE ON SCHEMA updatis_bootstrap TO updatis_runtime",
+            "GRANT SELECT ON updatis_bootstrap.metadata_instance TO updatis_runtime",
+        ])
+    if case != "missing_revision":
+        revision = "0000_wrong" if case == "wrong_revision" else "0001_metadata"
+        statements.extend([
+            "CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY)",
+            f"INSERT INTO alembic_version(version_num) VALUES('{revision}')",
+            "GRANT SELECT ON alembic_version TO updatis_runtime",
+        ])
+    exec_sql("metadata-db", "updatis_bootstrap", database, ";".join(statements))
+
+
+def write_database_config(case: str, *, migration: bool) -> Path:
+    source = "migration.example.json" if migration else "runtime.example.json"
+    document = json.loads((ROOT / "deploy/config" / source).read_text(encoding="utf-8"))
+    document["metadata"]["database"] = NEGATIVE_DATABASES[case]
+    purpose = "migration" if migration else "runtime"
+    path = SECRETS / f"{case}-{purpose}.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    GENERATED_CONFIGS.append(path)
+    return path
+
+
+def assert_schema_probe_rejected(case: str) -> None:
+    config = write_database_config(case, migration=False)
+    result = run(
+        "run", "--rm", "--no-deps", "--entrypoint", "python", "-v",
+        f"{config.resolve()}:/tmp/test-runtime.json:ro", "api", "-c",
+        "from updatis.health import check_metadata; check_metadata('/tmp/test-runtime.json')",
+        capture=True, check=False,
+    )
+    assert result.returncode != 0, f"schema probe unexpectedly accepted {case} database"
+    assert "SchemaCompatibilityError" in (result.stdout + result.stderr)
+
+
+def assert_canonical_schema_intact() -> None:
+    marker_and_revision = exec_sql(
+        "metadata-db", "updatis_runtime", CANONICAL_DATABASE, """
+        SELECT (SELECT instance_id FROM updatis_bootstrap.metadata_instance WHERE singleton)
+               || ',' ||
+               (SELECT version_num FROM alembic_version)
+        """,
+    )
+    assert marker_and_revision == "updatis-metadata-local,0001_metadata"
+    tables = set(exec_sql(
+        "metadata-db", "updatis_runtime", CANONICAL_DATABASE,
+        "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename",
+    ).splitlines())
+    expected = {
+        "pipelines", "configuration_revisions", "ingest_records", "events",
+        "ingest_checkpoints", "deliveries", "delivery_attempts", "dead_letters",
+        "ordering_gaps", "audit_records", "alembic_version",
+    }
+    assert expected <= tables
 
 
 def _json_records(raw: str) -> list[dict]:
@@ -82,6 +168,15 @@ def assert_compose_contract() -> None:
     assert worker["environment"]["UPDATIS_RUNTIME_CONFIG"] == "/etc/updatis/runtime.json"
     assert api.get("healthcheck", {}).get("test")
     assert worker.get("healthcheck", {}).get("test")
+    assert set(api["networks"]) == {"metadata", "api-edge"}
+    assert set(rendered["services"]["metadata-db"]["networks"]) == {"metadata"}
+    assert all(
+        "api-edge" not in service.get("networks", {})
+        for name, service in rendered["services"].items()
+        if name != "api"
+    )
+    assert rendered["networks"]["metadata"]["internal"] is True
+    assert not rendered["networks"]["api-edge"].get("internal", False)
     port = api["ports"][0]
     assert str(port["target"]) == "8000"
     assert str(port["published"]) == "8000"
@@ -97,6 +192,16 @@ def assert_runtime_mounts(service: str) -> None:
     )
 
 
+def assert_api_listener_and_publication() -> None:
+    run(
+        "exec", "-T", "api", "python", "-c",
+        "import socket; connection=socket.create_connection(('127.0.0.1', 8000), timeout=2); "
+        "connection.close()",
+    )
+    published = run("port", "api", "8000", capture=True).stdout.strip().splitlines()
+    assert "127.0.0.1:8000" in published, f"unexpected API port publication: {published!r}"
+
+
 def print_diagnostics() -> None:
     sys.stderr.write("\n===== docker compose ps -a =====\n")
     ps = run("ps", "-a", capture=True, check=False)
@@ -104,16 +209,28 @@ def print_diagnostics() -> None:
     sys.stderr.write("\n===== container health/status JSON =====\n")
     status = run("ps", "-a", "--format", "json", capture=True, check=False)
     sys.stderr.write(status.stdout or status.stderr)
+    sys.stderr.write("\n===== effective API command and port =====\n")
+    rendered = run("config", "--format", "json", capture=True, check=False)
+    if rendered.returncode == 0:
+        try:
+            api = json.loads(rendered.stdout)["services"]["api"]
+            sys.stderr.write(f"entrypoint={api.get('entrypoint')} command={api.get('command')}\n")
+        except (KeyError, json.JSONDecodeError) as exc:
+            sys.stderr.write(f"could not parse rendered API command: {exc}\n")
+    else:
+        sys.stderr.write(rendered.stderr)
+    port = run("port", "api", "8000", capture=True, check=False)
+    sys.stderr.write(f"docker compose port api 8000: {port.stdout or port.stderr}\n")
     for service in ("api", "worker", "metadata-db"):
         sys.stderr.write(f"\n===== {service} logs =====\n")
-        logs = run("logs", "--no-color", "--tail", "200", service, capture=True, check=False)
+        logs = run("logs", "--no-color", service, capture=True, check=False)
         sys.stderr.write(logs.stdout)
         sys.stderr.write(logs.stderr)
         container_ids = run("ps", "-a", "-q", service, capture=True, check=False).stdout.split()
         for container_id in container_ids:
             inspected = subprocess.run(
                 ["docker", "inspect", "--format",
-                 "{{json .State}}", container_id],
+                 "{{json .State}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}", container_id],
                 cwd=ROOT, text=True, capture_output=True, check=False,
             )
             sys.stderr.write(f"\n{service} inspect state: {inspected.stdout or inspected.stderr}")
@@ -150,35 +267,35 @@ def main() -> None:
             ):
                 assert_metadata_sql_denied(role, mutation)
 
-        exec_sql(
-            "metadata-db", "updatis_bootstrap", "postgres",
-            "CREATE DATABASE updatis_unmarked",
-        )
-        exec_sql(
-            "metadata-db", "updatis_bootstrap", "updatis_unmarked",
-            "GRANT CREATE ON SCHEMA public TO updatis_migration",
-        )
-        unmarked_document = json.loads((ROOT / "deploy/config/migration.example.json").read_text(encoding="utf-8"))
-        unmarked_document["metadata"]["database"] = "updatis_unmarked"
-        UNMARKED_CONFIG.write_text(json.dumps(unmarked_document), encoding="utf-8")
+        # Establish the canonical runtime schema before any negative schema
+        # probes. Those probes use distinct disposable databases below.
+        run("--profile", "tools", "run", "--rm", "migrate")
+        # A second explicit run must be a safe no-op.
+        run("--profile", "tools", "run", "--rm", "migrate")
+        assert_canonical_schema_intact()
+
+        for case in NEGATIVE_DATABASES:
+            create_disposable_schema_database(case)
+        unmarked_config = write_database_config("unmarked", migration=True)
         unmarked = run(
             "--profile", "tools", "run", "--rm", "--no-deps", "-v",
-            f"{UNMARKED_CONFIG.resolve()}:/tmp/unmarked-runtime.json:ro", "migrate",
+            f"{unmarked_config.resolve()}:/tmp/unmarked-runtime.json:ro", "migrate",
             "updatis.db.migrate", "--config", "/tmp/unmarked-runtime.json",
             capture=True, check=False,
         )
         assert unmarked.returncode != 0, "migration must reject an unmarked database"
         assert "metadata_instance" in (unmarked.stdout + unmarked.stderr)
+        for case in NEGATIVE_DATABASES:
+            assert_schema_probe_rejected(case)
+        # Regression guard: no negative case may damage the database that API
+        # and worker are about to use.
+        assert_canonical_schema_intact()
 
-        pre_migration = run("run", "--rm", "--no-deps", "api", capture=True, check=False)
-        assert pre_migration.returncode != 0, "API must reject an unmigrated metadata database"
-        run("--profile", "tools", "run", "--rm", "migrate")
-        # A second explicit run must be a safe no-op.
-        run("--profile", "tools", "run", "--rm", "migrate")
         # API and worker are started only after both migration runs succeeded.
         run("up", "-d", "--wait", "--wait-timeout", "180", "api", "worker")
         assert_service_healthy("api")
         assert_service_healthy("worker")
+        assert_api_listener_and_publication()
         assert_runtime_mounts("api")
         assert_runtime_mounts("worker")
 
@@ -197,12 +314,7 @@ def main() -> None:
             retry_interval_seconds=0.5,
             service_state=lambda: service_state("api"),
         )
-        tables = set(exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
-            "SELECT tablename FROM pg_tables WHERE schemaname='public'").splitlines())
-        expected = {"pipelines", "configuration_revisions", "ingest_records", "events",
-                    "ingest_checkpoints", "deliveries", "delivery_attempts", "dead_letters",
-                    "ordering_gaps", "audit_records", "alembic_version"}
-        assert expected <= tables
+        assert_canonical_schema_intact()
         exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata", """
             INSERT INTO pipelines (id, name, source_instance_id, source_stream_epoch)
             VALUES ('00000000-0000-0000-0000-000000000001', 'constraint-proof', 'source-proof', 'epoch-proof');
@@ -251,6 +363,7 @@ def main() -> None:
         run("up", "-d", "--wait", "--wait-timeout", "180", "api", "worker")
         assert_service_healthy("api")
         assert_service_healthy("worker")
+        assert_api_listener_and_publication()
         wait_for_http_ready(
             "http://127.0.0.1:8000/health/ready",
             max_wait_seconds=60,
@@ -268,7 +381,8 @@ def main() -> None:
         run("down", "--volumes", "--remove-orphans", check=False)
         for name in SECRET_FILES:
             (SECRETS / name).unlink(missing_ok=True)
-        UNMARKED_CONFIG.unlink(missing_ok=True)
+        for path in GENERATED_CONFIGS:
+            path.unlink(missing_ok=True)
         try:
             SECRETS.rmdir()
         except OSError:

@@ -104,7 +104,7 @@ services:
       interval: 3s
       timeout: 5s
       retries: 20
-    networks: [metadata]
+    networks: [metadata, api-edge]
 
   worker:
     build: {context: .., dockerfile: Dockerfile}
@@ -142,3 +142,4 @@ networks:
   metadata: {internal: true}
   source: {internal: true}
   transport: {internal: true}
+  api-edge: {}
