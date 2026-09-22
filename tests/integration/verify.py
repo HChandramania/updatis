@@ -6,7 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 import uuid
-import urllib.request
+
+from readiness import wait_for_http_ready
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,12 +46,85 @@ def assert_metadata_sql_denied(user: str, sql: str) -> None:
     assert result.returncode != 0, f"{user} unexpectedly executed marker mutation: {sql}"
 
 
+def _json_records(raw: str) -> list[dict]:
+    if not raw.strip():
+        return []
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, list) else [value]
+    except json.JSONDecodeError:
+        return [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+
+def service_state(service: str) -> dict:
+    result = run("ps", "-a", "--format", "json", service, capture=True, check=False)
+    if result.returncode:
+        return {"State": "missing", "Status": result.stderr.strip() or "compose ps failed"}
+    records = _json_records(result.stdout)
+    return records[0] if records else {"State": "missing", "Status": "container not found"}
+
+
+def assert_service_healthy(service: str) -> None:
+    state = service_state(service)
+    lifecycle = str(state.get("State", "")).lower()
+    health = str(state.get("Health", "")).lower()
+    assert lifecycle == "running", f"{service} is not running: {state}"
+    assert health == "healthy", f"{service} is not healthy: {state}"
+
+
+def assert_compose_contract() -> None:
+    rendered = json.loads(run("config", "--format", "json", capture=True).stdout)
+    api = rendered["services"]["api"]
+    worker = rendered["services"]["worker"]
+    assert api["command"] == ["updatis.api"]
+    assert worker["command"] == ["updatis.worker"]
+    assert api["environment"]["UPDATIS_RUNTIME_CONFIG"] == "/etc/updatis/runtime.json"
+    assert worker["environment"]["UPDATIS_RUNTIME_CONFIG"] == "/etc/updatis/runtime.json"
+    assert api.get("healthcheck", {}).get("test")
+    assert worker.get("healthcheck", {}).get("test")
+    port = api["ports"][0]
+    assert str(port["target"]) == "8000"
+    assert str(port["published"]) == "8000"
+    assert port["host_ip"] == "127.0.0.1"
+
+
+def assert_runtime_mounts(service: str) -> None:
+    run(
+        "exec", "-T", service, "python", "-c",
+        "from pathlib import Path; "
+        "assert Path('/etc/updatis/runtime.json').is_file(); "
+        "assert Path('/run/secrets/metadata_runtime_password').is_file()",
+    )
+
+
+def print_diagnostics() -> None:
+    sys.stderr.write("\n===== docker compose ps -a =====\n")
+    ps = run("ps", "-a", capture=True, check=False)
+    sys.stderr.write(ps.stdout or ps.stderr)
+    sys.stderr.write("\n===== container health/status JSON =====\n")
+    status = run("ps", "-a", "--format", "json", capture=True, check=False)
+    sys.stderr.write(status.stdout or status.stderr)
+    for service in ("api", "worker", "metadata-db"):
+        sys.stderr.write(f"\n===== {service} logs =====\n")
+        logs = run("logs", "--no-color", "--tail", "200", service, capture=True, check=False)
+        sys.stderr.write(logs.stdout)
+        sys.stderr.write(logs.stderr)
+        container_ids = run("ps", "-a", "-q", service, capture=True, check=False).stdout.split()
+        for container_id in container_ids:
+            inspected = subprocess.run(
+                ["docker", "inspect", "--format",
+                 "{{json .State}}", container_id],
+                cwd=ROOT, text=True, capture_output=True, check=False,
+            )
+            sys.stderr.write(f"\n{service} inspect state: {inspected.stdout or inspected.stderr}")
+
+
 def main() -> None:
     SECRETS.mkdir(exist_ok=True)
     for name in SECRET_FILES:
         (SECRETS / name).write_text(f"test-{name}-{uuid.uuid4().hex}\n", encoding="utf-8")
     try:
-        run("config", "--quiet")
+        assert_compose_contract()
         run("up", "-d", "--wait", "--wait-timeout", "300", "metadata-db", "source-db", "kafka", "connect")
         for role in ("updatis_migration", "updatis_runtime"):
             assert exec_sql(
@@ -101,15 +175,28 @@ def main() -> None:
         run("--profile", "tools", "run", "--rm", "migrate")
         # A second explicit run must be a safe no-op.
         run("--profile", "tools", "run", "--rm", "migrate")
+        # API and worker are started only after both migration runs succeeded.
         run("up", "-d", "--wait", "--wait-timeout", "180", "api", "worker")
-        with urllib.request.urlopen("http://127.0.0.1:8000/health/ready", timeout=5) as response:
-            assert response.status == 200
+        assert_service_healthy("api")
+        assert_service_healthy("worker")
+        assert_runtime_mounts("api")
+        assert_runtime_mounts("worker")
 
         assert exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
             "SELECT version_num FROM alembic_version") == "0001_metadata"
         for role in ("updatis_migration", "updatis_runtime"):
             assert exec_sql("metadata-db", role, "updatis_metadata",
                             "SELECT version_num FROM alembic_version") == "0001_metadata"
+        # Docker's API health check has already proven the in-container listener
+        # and metadata readiness. This bounded poll separately proves the host
+        # loopback publication, tolerating short forwarding propagation delays.
+        wait_for_http_ready(
+            "http://127.0.0.1:8000/health/ready",
+            max_wait_seconds=60,
+            request_timeout_seconds=1,
+            retry_interval_seconds=0.5,
+            service_state=lambda: service_state("api"),
+        )
         tables = set(exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
             "SELECT tablename FROM pg_tables WHERE schemaname='public'").splitlines())
         expected = {"pipelines", "configuration_revisions", "ingest_records", "events",
@@ -162,9 +249,21 @@ def main() -> None:
         run("stop", "api", "worker", "metadata-db", "source-db", "kafka", "connect")
         run("start", "metadata-db", "source-db", "kafka", "connect")
         run("up", "-d", "--wait", "--wait-timeout", "180", "api", "worker")
+        assert_service_healthy("api")
+        assert_service_healthy("worker")
+        wait_for_http_ready(
+            "http://127.0.0.1:8000/health/ready",
+            max_wait_seconds=60,
+            request_timeout_seconds=1,
+            retry_interval_seconds=0.5,
+            service_state=lambda: service_state("api"),
+        )
         assert exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
                         "SELECT version_num FROM alembic_version") == "0001_metadata"
         print("v0.1-a Compose and migration verification passed")
+    except BaseException:
+        print_diagnostics()
+        raise
     finally:
         run("down", "--volumes", "--remove-orphans", check=False)
         for name in SECRET_FILES:

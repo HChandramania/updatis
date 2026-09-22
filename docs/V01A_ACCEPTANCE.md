@@ -46,3 +46,38 @@ Alembic revision without creating tables, and an unmarked database is rejected.
 The verifier's Compose configuration step passed locally, but the Docker daemon
 was unavailable before containers could start. Those live assertions therefore
 remain pending a hosted `v01a-compose` rerun.
+
+## 01A readiness verification correction
+
+A subsequent hosted `v01a-compose` run completed migration and the bounded
+`docker compose up -d --wait` for API and worker, then received a host-loopback
+connection refusal from its single readiness request. Reaching that request
+means Compose had started both services and their in-container health checks had
+passed at least once. The old verifier did not retain enough evidence to tell a
+short host-forwarding delay from a container that exited immediately afterward.
+
+The Compose contract still explicitly runs `updatis.api`, binds Uvicorn to
+`0.0.0.0:8000` in the container, publishes only
+`127.0.0.1:8000:8000`, mounts the runtime configuration and metadata runtime
+secret, and defines API and worker health checks. The verifier now validates the
+rendered Compose values, checks both containers remain running and healthy,
+checks their mounted configuration and secret files, and confirms schema
+readiness before testing the host listener.
+
+Host readiness now uses a 60-second monotonic deadline, one-second request
+timeouts, and half-second bounded retries for connection failures and HTTP 503.
+It does not treat a fixed delay as readiness. An exited or unhealthy API fails
+immediately with its Compose status. Before any failure cleanup, the verifier
+prints `docker compose ps -a`, JSON health/status data, API logs, worker logs,
+metadata database logs, and Docker inspect state; volume cleanup remains in
+`finally` afterward.
+
+After this correction, the complete local CPython 3.13.15 suite passed with
+**76 tests and 4 unchanged strict expected failures**. New tests cover initial
+connection refusal followed by success, temporary HTTP 503 followed by success,
+permanent refusal through the deadline, and immediate exited/unhealthy container
+status. The Docker integration verifier and diagnostic path were executed
+locally, but the unavailable Docker daemon prevented container startup. The
+rendered Compose contract passed before that failure, and diagnostics were
+printed before cleanup. Live API/worker and host-port evidence remains pending a
+hosted `v01a-compose` rerun.
