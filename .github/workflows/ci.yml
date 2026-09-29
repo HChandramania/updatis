@@ -24,7 +24,7 @@ jobs:
         run: |
           python -c "import sys; assert sys.version_info[:2] == (3, 13); import app, kafka, updatis"
           python -m pip check
-      - name: Run Foundation and v0.1-a unit suites
+      - name: Run Foundation, v0.1-a, and v0.1-b unit suites
         run: python -m pytest
 
   compatibility:
@@ -46,3 +46,13 @@ jobs:
           python-version: "3.13.15"
       - name: Validate application image, migrations, isolation, and restart
         run: python tests/integration/verify.py
+
+  v01b-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.15"
+      - name: Validate capture, normalization, and durable intake
+        run: python tests/integration/verify_v01b.py

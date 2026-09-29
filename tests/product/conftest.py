@@ -10,7 +10,7 @@ import pytest
 def pipeline_document() -> dict:
     return {
         "schema_version": 1,
-        "pipeline_id": "orders",
+        "pipeline_id": "00000000-0000-0000-0000-000000000001",
         "source": {
             "kind": "postgresql",
             "endpoint": {
@@ -18,7 +18,7 @@ def pipeline_document() -> dict:
                 "password": {"provider": "env", "name": "SOURCE_PASSWORD"},
                 "instance_id": "source-1",
             },
-            "stream_epoch": "epoch-1", "tables": [{
+            "stream_epoch": "00000000-0000-0000-0000-000000000101", "tables": [{
                 "schema_name": "public", "table_name": "orders",
                 "key_columns": ["id"], "key_types": ["bigint"],
             }],
@@ -42,5 +42,5 @@ def runtime_document() -> dict:
         },
         "metadata_aliases": ["metadata"],
         "secrets_directory": "/run/secrets",
-        "schema_revision": "0001_metadata",
+        "schema_revision": "0002_durable_intake",
     }

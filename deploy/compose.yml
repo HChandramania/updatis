@@ -24,7 +24,8 @@ services:
       POSTGRES_USER: source_bootstrap
       POSTGRES_DB: example_source
       POSTGRES_PASSWORD_FILE: /run/secrets/source_bootstrap_password
-    secrets: [source_bootstrap_password, source_runtime_password]
+    secrets: [source_bootstrap_password, source_runtime_password, source_capture_password]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
     volumes:
       - source-data:/var/lib/postgresql
       - ./postgres/init-source.sh:/docker-entrypoint-initdb.d/10-source.sh:ro
@@ -49,6 +50,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_MESSAGE_MAX_BYTES: 2097152
     volumes: [kafka-data:/var/lib/kafka/data]
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1"]
@@ -57,10 +60,20 @@ services:
       retries: 40
     networks: [transport]
 
+  topic-init:
+    image: apache/kafka:4.3.1
+    depends_on:
+      kafka: {condition: service_healthy}
+    volumes:
+      - ./kafka/init-topics.sh:/opt/updatis/init-topics.sh:ro
+    entrypoint: ["/bin/sh", "/opt/updatis/init-topics.sh"]
+    networks: [transport]
+
   connect:
     image: quay.io/debezium/connect:3.6.3.Final
     depends_on:
       kafka: {condition: service_healthy}
+      topic-init: {condition: service_completed_successfully}
     environment:
       BOOTSTRAP_SERVERS: kafka:29092
       GROUP_ID: updatis-connect
@@ -70,12 +83,36 @@ services:
       CONFIG_STORAGE_REPLICATION_FACTOR: 1
       OFFSET_STORAGE_REPLICATION_FACTOR: 1
       STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_CONFIG_PROVIDERS: directory
+      CONNECT_CONFIG_PROVIDERS_DIRECTORY_CLASS: org.apache.kafka.common.config.provider.DirectoryConfigProvider
+      CONNECT_PRODUCER_MAX_REQUEST_SIZE: 2097152
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+    secrets: [source_capture_password]
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connector-plugins >/dev/null"]
       interval: 3s
       timeout: 5s
       retries: 40
     networks: [source, transport]
+
+  provision-capture:
+    build: {context: .., dockerfile: Dockerfile}
+    profiles: [capture]
+    command: ["updatis.capture.provision"]
+    environment:
+      UPDATIS_RUNTIME_CONFIG: /etc/updatis/runtime.json
+      UPDATIS_PIPELINE_CONFIG: /etc/updatis/pipeline.json
+      UPDATIS_CONNECT_URL: http://connect:8083
+    configs:
+      - {source: runtime_config, target: /etc/updatis/runtime.json}
+      - {source: pipeline_config, target: /etc/updatis/pipeline.json}
+    secrets: [metadata_runtime_password, source_capture_password]
+    depends_on:
+      metadata-db: {condition: service_healthy}
+      source-db: {condition: service_healthy}
+      connect: {condition: service_healthy}
+      topic-init: {condition: service_completed_successfully}
+    networks: [metadata, source, transport]
 
   migrate:
     build: {context: .., dockerfile: Dockerfile}
@@ -109,29 +146,37 @@ services:
   worker:
     build: {context: .., dockerfile: Dockerfile}
     command: ["updatis.worker"]
-    environment: {UPDATIS_RUNTIME_CONFIG: /etc/updatis/runtime.json}
-    configs:
-      - {source: runtime_config, target: /etc/updatis/runtime.json}
     secrets: [metadata_runtime_password]
     depends_on:
       metadata-db: {condition: service_healthy}
+      kafka: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health/ready', timeout=2)"]
       interval: 3s
       timeout: 5s
       retries: 20
-    networks: [metadata]
+    configs:
+      - {source: runtime_config, target: /etc/updatis/runtime.json}
+      - {source: pipeline_config, target: /etc/updatis/pipeline.json}
+    environment:
+      UPDATIS_RUNTIME_CONFIG: /etc/updatis/runtime.json
+      UPDATIS_PIPELINE_CONFIG: /etc/updatis/pipeline.json
+      UPDATIS_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      UPDATIS_CAPTURE_ENABLED: "${UPDATIS_CAPTURE_ENABLED:-false}"
+    networks: [metadata, transport]
 
 configs:
   runtime_config: {file: ./config/runtime.example.json}
   migration_config: {file: ./config/migration.example.json}
+  pipeline_config: {file: ./config/pipeline.example.json}
 
 secrets:
-  metadata_bootstrap_password: {file: ./secrets/metadata_bootstrap_password}
-  metadata_migration_password: {file: ./secrets/metadata_migration_password}
-  metadata_runtime_password: {file: ./secrets/metadata_runtime_password}
-  source_bootstrap_password: {file: ./secrets/source_bootstrap_password}
-  source_runtime_password: {file: ./secrets/source_runtime_password}
+  metadata_bootstrap_password: {file: "${UPDATIS_SECRETS_DIR:-./secrets}/metadata_bootstrap_password"}
+  metadata_migration_password: {file: "${UPDATIS_SECRETS_DIR:-./secrets}/metadata_migration_password"}
+  metadata_runtime_password: {file: "${UPDATIS_SECRETS_DIR:-./secrets}/metadata_runtime_password"}
+  source_bootstrap_password: {file: "${UPDATIS_SECRETS_DIR:-./secrets}/source_bootstrap_password"}
+  source_runtime_password: {file: "${UPDATIS_SECRETS_DIR:-./secrets}/source_runtime_password"}
+  source_capture_password: {file: "${UPDATIS_SECRETS_DIR:-./secrets}/source_capture_password"}
 
 volumes:
   metadata-data: {}

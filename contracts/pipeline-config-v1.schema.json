@@ -8,7 +8,7 @@
   "required": ["schema_version", "pipeline_id", "source", "destination"],
   "properties": {
     "schema_version": {"const": 1},
-    "pipeline_id": {"type": "string"},
+    "pipeline_id": {"type": "string", "format": "uuid"},
     "envelope_version": {"const": 1},
     "source": {"type": "object"},
     "destination": {"type": "object"},

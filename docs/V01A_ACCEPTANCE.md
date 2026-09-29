@@ -117,3 +117,14 @@ Docker integration verifier was run locally; rendered Compose validation and
 the expanded diagnostic path succeeded, but the unavailable local Docker daemon
 prevented container startup. Live evidence remains pending the next hosted
 `v01a-compose` run.
+
+## Subsequent local regression evidence
+
+On 2026-09-27, after adding the versioned `0002_durable_intake` migration for
+v0.1-b, the complete Docker-backed v0.1-a verifier passed locally. It applied
+the full migration chain with the scoped migration role, rechecked marker and
+runtime privilege boundaries, kept all destructive negative schema cases in
+disposable databases, started healthy API and worker containers, reached the
+API through `127.0.0.1:8000`, and passed the non-destructive restart check. This
+is an additive factual note; the earlier Foundation and v0.1-a decisions and
+their contemporaneous test history above remain unchanged.

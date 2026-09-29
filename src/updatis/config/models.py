@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
@@ -30,13 +31,13 @@ class RuntimeConfigV1(StrictModel):
     metadata: PostgresEndpoint
     metadata_aliases: tuple[Annotated[str, Field(min_length=1, max_length=253)], ...] = ()
     secrets_directory: str = "/run/secrets"
-    schema_revision: Literal["0001_metadata"] = "0001_metadata"
+    schema_revision: Literal["0002_durable_intake"] = "0002_durable_intake"
 
 
 class SourceTable(StrictModel):
-    schema_name: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")]
-    table_name: Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")]
-    key_columns: tuple[Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")], ...]
+    schema_name: Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
+    table_name: Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_]{0,62}$")]
+    key_columns: tuple[Annotated[str, Field(pattern=r"^[a-z_][a-z0-9_]{0,62}$")], ...]
     key_types: tuple[Literal["smallint", "integer", "bigint", "uuid", "char", "varchar", "text"], ...]
 
     @model_validator(mode="after")
@@ -53,7 +54,7 @@ class SourceTable(StrictModel):
 class SourceConfig(StrictModel):
     kind: Literal["postgresql"]
     endpoint: PostgresEndpoint
-    stream_epoch: Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")]
+    stream_epoch: UUID
     snapshot_mode: Literal["initial"] = "initial"
     connector_tasks: Literal[1] = 1
     partitions_per_table: Literal[1] = 1
@@ -118,7 +119,7 @@ class RetentionConfig(StrictModel):
 
 class PipelineConfigV1(StrictModel):
     schema_version: Literal[1]
-    pipeline_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
+    pipeline_id: UUID
     envelope_version: Literal[1] = 1
     source: SourceConfig
     destination: DestinationConfig

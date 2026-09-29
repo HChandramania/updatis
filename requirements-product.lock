@@ -169,6 +169,10 @@ idna==3.20 \
     --hash=sha256:a7db850025b95ded1eae8a46181a1a6c56c92c96f0e2b005d9ff8dc0210cab44 \
     --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
     # via anyio
+kafka-python==3.0.11 \
+    --hash=sha256:9d10cab4e11e02545d82c7e5af5702da5aa46dd4eccd11ad92a50bf6dbbecd14 \
+    --hash=sha256:a003d927e79c801d6cfd1e59ceaaf78807351e75cdb5b8ee9ce4262586f9780f
+    # via -r requirements-product.txt
 mako==1.4.1 \
     --hash=sha256:a359d9a94a541213958742b2698d0a7757bb83551767bc468a74b9905aba9617 \
     --hash=sha256:d7904710b662996425a21627710c4777c45053146942cf8a7aebf757c92b8c27

@@ -16,11 +16,20 @@ except ModuleNotFoundError:  # Direct script execution sets tests/integration as
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "deploy" / "compose.yml"
 PROJECT = f"updatis-v01a-{os.getpid()}-{uuid.uuid4().hex[:8]}"
-SECRETS = ROOT / "deploy" / "secrets"
+SECRETS_ROOT = ROOT / ".test-secrets"
+SECRETS = SECRETS_ROOT / PROJECT
 SECRET_FILES = (
     "metadata_bootstrap_password", "metadata_migration_password", "metadata_runtime_password",
-    "source_bootstrap_password", "source_runtime_password",
+    "source_bootstrap_password", "source_runtime_password", "source_capture_password",
 )
+SECRET_VALUES = {
+    "metadata_bootstrap_password": "V01BootstrapPass123",
+    "metadata_migration_password": "V01MigrationPass123",
+    "metadata_runtime_password": "V01RuntimePass123",
+    "source_bootstrap_password": "V01SourceBootPass123",
+    "source_runtime_password": "V01SourceRunPass123",
+    "source_capture_password": "V01SourceCapturePass123",
+}
 CANONICAL_DATABASE = "updatis_metadata"
 NEGATIVE_DATABASES = {
     "unmarked": "updatis_test_unmarked",
@@ -33,7 +42,8 @@ GENERATED_CONFIGS: list[Path] = []
 
 def run(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
     command = ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE), *args]
-    result = subprocess.run(command, cwd=ROOT, text=True, capture_output=capture, check=False)
+    environment = dict(os.environ, UPDATIS_SECRETS_DIR=str(SECRETS.resolve()))
+    result = subprocess.run(command, cwd=ROOT, env=environment, text=True, capture_output=capture, check=False)
     if check and result.returncode:
         if capture:
             sys.stderr.write(result.stdout)
@@ -79,7 +89,7 @@ def create_disposable_schema_database(case: str) -> None:
             "GRANT SELECT ON updatis_bootstrap.metadata_instance TO updatis_runtime",
         ])
     if case != "missing_revision":
-        revision = "0000_wrong" if case == "wrong_revision" else "0001_metadata"
+        revision = "0000_wrong" if case == "wrong_revision" else "0002_durable_intake"
         statements.extend([
             "CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY)",
             f"INSERT INTO alembic_version(version_num) VALUES('{revision}')",
@@ -119,7 +129,7 @@ def assert_canonical_schema_intact() -> None:
                (SELECT version_num FROM alembic_version)
         """,
     )
-    assert marker_and_revision == "updatis-metadata-local,0001_metadata"
+    assert marker_and_revision == "updatis-metadata-local,0002_durable_intake"
     tables = set(exec_sql(
         "metadata-db", "updatis_runtime", CANONICAL_DATABASE,
         "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename",
@@ -128,6 +138,8 @@ def assert_canonical_schema_intact() -> None:
         "pipelines", "configuration_revisions", "ingest_records", "events",
         "ingest_checkpoints", "deliveries", "delivery_attempts", "dead_letters",
         "ordering_gaps", "audit_records", "alembic_version",
+        "stream_epochs", "stream_epoch_transitions", "source_schema_manifests",
+        "intake_discontinuities",
     }
     assert expected <= tables
 
@@ -237,9 +249,9 @@ def print_diagnostics() -> None:
 
 
 def main() -> None:
-    SECRETS.mkdir(exist_ok=True)
+    SECRETS.mkdir(parents=True, exist_ok=True)
     for name in SECRET_FILES:
-        (SECRETS / name).write_text(f"test-{name}-{uuid.uuid4().hex}\n", encoding="utf-8")
+        (SECRETS / name).write_text(SECRET_VALUES[name], encoding="utf-8")
     try:
         assert_compose_contract()
         run("up", "-d", "--wait", "--wait-timeout", "300", "metadata-db", "source-db", "kafka", "connect")
@@ -300,10 +312,10 @@ def main() -> None:
         assert_runtime_mounts("worker")
 
         assert exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
-            "SELECT version_num FROM alembic_version") == "0001_metadata"
+            "SELECT version_num FROM alembic_version") == "0002_durable_intake"
         for role in ("updatis_migration", "updatis_runtime"):
             assert exec_sql("metadata-db", role, "updatis_metadata",
-                            "SELECT version_num FROM alembic_version") == "0001_metadata"
+                            "SELECT version_num FROM alembic_version") == "0002_durable_intake"
         # Docker's API health check has already proven the in-container listener
         # and metadata readiness. This bounded poll separately proves the host
         # loopback publication, tolerating short forwarding propagation delays.
@@ -317,7 +329,8 @@ def main() -> None:
         assert_canonical_schema_intact()
         exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata", """
             INSERT INTO pipelines (id, name, source_instance_id, source_stream_epoch)
-            VALUES ('00000000-0000-0000-0000-000000000001', 'constraint-proof', 'source-proof', 'epoch-proof');
+            VALUES ('00000000-0000-0000-0000-000000000001', 'constraint-proof', 'source-proof',
+                    '00000000-0000-0000-0000-000000000101');
             INSERT INTO configuration_revisions
                 (id, pipeline_id, revision, schema_version, document, content_hash)
             VALUES ('10000000-0000-0000-0000-000000000001',
@@ -343,7 +356,7 @@ def main() -> None:
         assert exec_sql("source-db", "source_bootstrap", "example_source",
             "SELECT count(*) FROM pg_roles WHERE rolname IN ('updatis_runtime','updatis_migration')") == "0"
         assert exec_sql("source-db", "source_bootstrap", "example_source",
-            "SELECT count(*) FROM pg_publication WHERE pubname NOT LIKE 'pg_%'") == "0"
+            "SELECT count(*) FROM pg_publication WHERE pubname='updatis_pub_00000000000000000000000000000001_000000000101'") == "1"
         assert exec_sql("source-db", "source_bootstrap", "example_source",
             "SELECT count(*) FROM pg_replication_slots") == "0"
 
@@ -353,7 +366,9 @@ def main() -> None:
         topics = run("exec", "-T", "kafka", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server",
                      "localhost:29092", "--list", capture=True).stdout.splitlines()
         assert set(topics) <= {"__consumer_offsets", "updatis_connect_configs", "updatis_connect_offsets",
-                               "updatis_connect_statuses"}
+                               "updatis_connect_statuses",
+                               "updatis.00000000000000000000000000000001.00000000000000000000000000000101.example.orders",
+                               "updatis.00000000000000000000000000000001.00000000000000000000000000000101.example.customers"}
 
         # psql must fail because the runtime role has no CREATE privilege.
         assert_metadata_sql_denied("updatis_runtime", "CREATE TABLE forbidden_runtime_ddl(id integer)")
@@ -372,7 +387,7 @@ def main() -> None:
             service_state=lambda: service_state("api"),
         )
         assert exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
-                        "SELECT version_num FROM alembic_version") == "0001_metadata"
+                        "SELECT version_num FROM alembic_version") == "0002_durable_intake"
         print("v0.1-a Compose and migration verification passed")
     except BaseException:
         print_diagnostics()
@@ -385,6 +400,10 @@ def main() -> None:
             path.unlink(missing_ok=True)
         try:
             SECRETS.rmdir()
+        except OSError:
+            pass
+        try:
+            SECRETS_ROOT.rmdir()
         except OSError:
             pass
 

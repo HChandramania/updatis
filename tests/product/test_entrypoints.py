@@ -34,7 +34,11 @@ def test_entrypoints_do_not_apply_migrations() -> None:
         assert "command.upgrade" not in path.read_text(encoding="utf-8")
 
 
-def test_source_bootstrap_contains_no_cdc_setup() -> None:
+def test_source_bootstrap_provisions_only_scoped_cdc_prerequisites() -> None:
     script = (ROOT / "deploy/postgres/init-source.sh").read_text(encoding="utf-8").lower()
-    forbidden = ("create publication", "pg_create_logical_replication_slot", "create_replication_slot")
-    assert not any(fragment in script for fragment in forbidden)
+    assert "create publication" in script
+    assert "for table example.orders" in script
+    assert "login replication" in script
+    assert "for all tables" not in script
+    assert "pg_create_logical_replication_slot" not in script
+    assert "create_replication_slot" not in script

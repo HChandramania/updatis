@@ -7,6 +7,11 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from updatis.health import check_metadata
+from updatis.config.loader import load_pipeline_config, load_runtime_config
+from updatis.config.secrets import SecretResolver
+from updatis.db.connection import create_metadata_engine
+from updatis.intake.repository import IntakeRepository
+from updatis.kafka.consumer import run_consumer
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -26,7 +31,6 @@ class HealthHandler(BaseHTTPRequestHandler):
 def main() -> None:
     config_path = os.getenv("UPDATIS_RUNTIME_CONFIG", "/etc/updatis/runtime.json")
     check_metadata(config_path)
-    HealthHandler.ready = True
     server = ThreadingHTTPServer(("127.0.0.1", 8081), HealthHandler)
     stop = threading.Event()
 
@@ -37,7 +41,24 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
-    server.serve_forever(poll_interval=0.5)
+    server_thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.5}, daemon=True)
+    server_thread.start()
+    capture_enabled = os.getenv("UPDATIS_CAPTURE_ENABLED", "false").lower() == "true"
+    pipeline_path = os.getenv("UPDATIS_PIPELINE_CONFIG")
+    if not capture_enabled:
+        HealthHandler.ready = True
+        stop.wait()
+    else:
+        if not pipeline_path:
+            raise RuntimeError("UPDATIS_PIPELINE_CONFIG is required when capture is enabled")
+        runtime = load_runtime_config(config_path)
+        pipeline = load_pipeline_config(pipeline_path)
+        resolver = SecretResolver(runtime.secrets_directory)
+        engine = create_metadata_engine(runtime.metadata, resolver)
+        run_consumer(pipeline, IntakeRepository(engine),
+                     os.getenv("UPDATIS_KAFKA_BOOTSTRAP_SERVERS", "kafka:29092"), stop,
+                     lambda value: setattr(HealthHandler, "ready", value))
+    server.shutdown()
     server.server_close()
 
 

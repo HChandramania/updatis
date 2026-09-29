@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import Engine, text
 
-EXPECTED_REVISION = "0001_metadata"
+EXPECTED_REVISION = "0002_durable_intake"
 
 
 class SchemaCompatibilityError(RuntimeError):

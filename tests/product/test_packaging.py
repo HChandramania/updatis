@@ -22,6 +22,7 @@ def test_wheel_contains_programmatic_alembic_environment(tmp_path: Path) -> None
         names = set(archive.namelist())
     assert "updatis/db/migrations/env.py" in names
     assert "updatis/db/migrations/versions/0001_metadata.py" in names
+    assert "updatis/db/migrations/versions/0002_durable_intake.py" in names
     assert "updatis/resources/foundation-defaults-v1.json" in names
 
     installed = tmp_path / "installed"
