@@ -31,7 +31,7 @@ class RuntimeConfigV1(StrictModel):
     metadata: PostgresEndpoint
     metadata_aliases: tuple[Annotated[str, Field(min_length=1, max_length=253)], ...] = ()
     secrets_directory: str = "/run/secrets"
-    schema_revision: Literal["0002_durable_intake"] = "0002_durable_intake"
+    schema_revision: Literal["0005_lane_fairness"] = "0005_lane_fairness"
 
 
 class SourceTable(StrictModel):
