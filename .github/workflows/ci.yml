@@ -56,3 +56,13 @@ jobs:
           python-version: "3.13.15"
       - name: Validate capture, normalization, and durable intake
         run: python tests/integration/verify_v01b.py
+
+  v01c-01g-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.15"
+      - name: Validate ordered partition heads, durable leases, and fencing
+        run: python tests/integration/verify_v01c.py

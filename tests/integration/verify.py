@@ -43,7 +43,7 @@ GENERATED_CONFIGS: list[Path] = []
 def run(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
     command = ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE), *args]
     environment = dict(os.environ, UPDATIS_SECRETS_DIR=str(SECRETS.resolve()))
-    result = subprocess.run(command, cwd=ROOT, env=environment, text=True, capture_output=capture, check=False)
+    result = subprocess.run(command, cwd=ROOT, env=environment, text=True, capture_output=capture, check=False, timeout=600)
     if check and result.returncode:
         if capture:
             sys.stderr.write(result.stdout)
@@ -89,7 +89,7 @@ def create_disposable_schema_database(case: str) -> None:
             "GRANT SELECT ON updatis_bootstrap.metadata_instance TO updatis_runtime",
         ])
     if case != "missing_revision":
-        revision = "0000_wrong" if case == "wrong_revision" else "0002_durable_intake"
+        revision = "0000_wrong" if case == "wrong_revision" else "0005_lane_fairness"
         statements.extend([
             "CREATE TABLE alembic_version (version_num varchar(32) PRIMARY KEY)",
             f"INSERT INTO alembic_version(version_num) VALUES('{revision}')",
@@ -129,7 +129,7 @@ def assert_canonical_schema_intact() -> None:
                (SELECT version_num FROM alembic_version)
         """,
     )
-    assert marker_and_revision == "updatis-metadata-local,0002_durable_intake"
+    assert marker_and_revision == "updatis-metadata-local,0005_lane_fairness"
     tables = set(exec_sql(
         "metadata-db", "updatis_runtime", CANONICAL_DATABASE,
         "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename",
@@ -233,9 +233,9 @@ def print_diagnostics() -> None:
         sys.stderr.write(rendered.stderr)
     port = run("port", "api", "8000", capture=True, check=False)
     sys.stderr.write(f"docker compose port api 8000: {port.stdout or port.stderr}\n")
-    for service in ("api", "worker", "metadata-db"):
+    for service in ("api", "worker", "metadata-db", "kafka"):
         sys.stderr.write(f"\n===== {service} logs =====\n")
-        logs = run("logs", "--no-color", service, capture=True, check=False)
+        logs = run("logs", "--tail", "100", "--no-color", service, capture=True, check=False)
         sys.stderr.write(logs.stdout)
         sys.stderr.write(logs.stderr)
         container_ids = run("ps", "-a", "-q", service, capture=True, check=False).stdout.split()
@@ -243,7 +243,7 @@ def print_diagnostics() -> None:
             inspected = subprocess.run(
                 ["docker", "inspect", "--format",
                  "{{json .State}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}", container_id],
-                cwd=ROOT, text=True, capture_output=True, check=False,
+                cwd=ROOT, text=True, capture_output=True, check=False, timeout=30,
             )
             sys.stderr.write(f"\n{service} inspect state: {inspected.stdout or inspected.stderr}")
 
@@ -312,10 +312,10 @@ def main() -> None:
         assert_runtime_mounts("worker")
 
         assert exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
-            "SELECT version_num FROM alembic_version") == "0002_durable_intake"
+            "SELECT version_num FROM alembic_version") == "0005_lane_fairness"
         for role in ("updatis_migration", "updatis_runtime"):
             assert exec_sql("metadata-db", role, "updatis_metadata",
-                            "SELECT version_num FROM alembic_version") == "0002_durable_intake"
+                            "SELECT version_num FROM alembic_version") == "0005_lane_fairness"
         # Docker's API health check has already proven the in-container listener
         # and metadata readiness. This bounded poll separately proves the host
         # loopback publication, tolerating short forwarding propagation delays.
@@ -387,7 +387,7 @@ def main() -> None:
             service_state=lambda: service_state("api"),
         )
         assert exec_sql("metadata-db", "updatis_bootstrap", "updatis_metadata",
-                        "SELECT version_num FROM alembic_version") == "0002_durable_intake"
+                        "SELECT version_num FROM alembic_version") == "0005_lane_fairness"
         print("v0.1-a Compose and migration verification passed")
     except BaseException:
         print_diagnostics()

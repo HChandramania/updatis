@@ -42,5 +42,5 @@ def runtime_document() -> dict:
         },
         "metadata_aliases": ["metadata"],
         "secrets_directory": "/run/secrets",
-        "schema_revision": "0002_durable_intake",
+        "schema_revision": "0005_lane_fairness",
     }

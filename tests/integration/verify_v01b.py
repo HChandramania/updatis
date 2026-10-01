@@ -34,7 +34,7 @@ def compose(*args: str, capture: bool = False, check: bool = True) -> subprocess
     command = ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE), *args]
     environment = dict(os.environ, UPDATIS_SECRETS_DIR=str(SECRETS.resolve()),
                        UPDATIS_CAPTURE_ENABLED="true")
-    result = subprocess.run(command, cwd=ROOT, env=environment, text=True, capture_output=capture, check=False)
+    result = subprocess.run(command, cwd=ROOT, env=environment, text=True, capture_output=capture, check=False, timeout=600)
     if check and result.returncode:
         if capture:
             sys.stderr.write(result.stdout + result.stderr)
@@ -70,11 +70,11 @@ def connector_status() -> dict:
 def diagnostics() -> None:
     for args, label in [
         (("ps", "-a"), "compose ps"),
-        (("logs", "--no-color", "worker"), "worker logs"),
-        (("logs", "--no-color", "connect"), "connect logs"),
-        (("logs", "--no-color", "kafka"), "kafka logs"),
-        (("logs", "--no-color", "source-db"), "source logs"),
-        (("logs", "--no-color", "metadata-db"), "metadata logs"),
+        (("logs", "--tail", "100", "--no-color", "worker"), "worker logs"),
+        (("logs", "--tail", "100", "--no-color", "connect"), "connect logs"),
+        (("logs", "--tail", "100", "--no-color", "kafka"), "kafka logs"),
+        (("logs", "--tail", "100", "--no-color", "source-db"), "source logs"),
+        (("logs", "--tail", "100", "--no-color", "metadata-db"), "metadata logs"),
     ]:
         result = compose(*args, capture=True, check=False)
         sys.stderr.write(f"\n===== {label} =====\n{result.stdout}{result.stderr}")

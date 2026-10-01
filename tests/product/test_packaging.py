@@ -23,6 +23,9 @@ def test_wheel_contains_programmatic_alembic_environment(tmp_path: Path) -> None
     assert "updatis/db/migrations/env.py" in names
     assert "updatis/db/migrations/versions/0001_metadata.py" in names
     assert "updatis/db/migrations/versions/0002_durable_intake.py" in names
+    assert "updatis/db/migrations/versions/0003_partition_leases.py" in names
+    assert "updatis/db/migrations/versions/0004_delivery_lanes.py" in names
+    assert "updatis/db/migrations/versions/0005_lane_fairness.py" in names
     assert "updatis/resources/foundation-defaults-v1.json" in names
 
     installed = tmp_path / "installed"
